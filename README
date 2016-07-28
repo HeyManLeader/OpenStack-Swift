@@ -1,0 +1,45 @@
+Ringinfo
+------
+
+Ringinfo Middleware for OpenStack Swift
+
+Features
+-------
+ - Support Request Ringinfo (Ringinfo APIs GET)
+
+Install
+-------
+
+1) Install Video with ``sudo python setup.py install`` or ``sudo python
+   setup.py develop`` or via whatever packaging system you may be using.
+
+2) Alter your proxy-server.conf pipeline to have ringinforequest:
+
+If you use keystone:
+
+    Was::
+
+        [pipeline:main]
+        pipeline = catch_errors cache authtoken keystone proxy-server
+
+    Change To::
+
+        [pipeline:main]
+        pipeline = catch_errors cache authtoken keystoneauth ringinfo proxy-server
+
+    To support Multipart Upload::
+
+        [pipeline:main]
+        pipeline = catch_errors cache swift3 s3token authtoken keystoneauth slo ringinfo proxy-server
+
+3) Add to your proxy-server.conf the section for the Swift3 WSGI filter::
+
+    [filter:ringinfo]
+    use = egg:ringinfo#ringinfo
+
+
+4) Ringinfo config options:
+
+ You can find a proxy config example in `ringinfo/etc/proxy-server.conf-sample`.
+
+    # curl -X GET -I https://127.0.0.1:8080/ringinfo

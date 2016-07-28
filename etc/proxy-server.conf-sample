@@ -1,0 +1,52 @@
+[DEFAULT]
+
+[pipeline:main]
+# This is the minimum pipeline for ringinforequest.  See swift manual if you want to add more middleware.
+
+# Keystone pipeline
+pipeline = proxy-logging cache authtoken keystoneauth bulk slo proxy-logging ringinfo proxy-server
+
+[app:proxy-server]
+use = egg:swift#proxy
+
+[filter:catch_errors]
+use = egg:swift#catch_errors
+
+[filter:proxy-logging]
+use = egg:swift#proxy_logging
+
+[filter:bulk]
+use = egg:swift#bulk
+
+[filter:slo]
+use = egg:swift#slo
+
+# AWS S3 document says that each part must be at least 5 MB in a multipart
+# upload, except the last part.
+min_segment_size = 5242880
+
+[filter:dlo]
+use = egg:swift#dlo
+
+[filter:cache]
+use = egg:swift#memcache
+
+[filter:authtoken]
+# See swift manual for more details.
+paste.filter_factory = keystonemiddleware.auth_token:filter_factory
+auth_host = keystonehost
+auth_port = 35357
+auth_protocol = http
+auth_uri = http://keystonehost:5000/
+admin_tenant_name = service
+admin_user = swift
+admin_password = password
+cache = swift.cache
+
+[filter:keystoneauth]
+# See swift manual for more details.
+use = egg:swift#keystoneauth
+operator_roles = admin, swiftoperator
+
+[filter:ringinfo]
+use = egg:ringinfo#ringinfo
