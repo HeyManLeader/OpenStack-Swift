@@ -42,4 +42,4 @@ If you use keystone:
 
  You can find a proxy config example in `gziptojson/etc/proxy-server.conf-sample`.
 
-    # curl -X GET -I https://127.0.0.1:8080/ringinfo
+    # curl -X GET -I http://127.0.0.1:8080/ringinfo

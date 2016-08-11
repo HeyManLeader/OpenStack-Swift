@@ -3,18 +3,13 @@
 # Author: xujianfeng_sx@qiyi.com
 # Time  : 2016-7-20
 
-
-import array
-import cPickle as pickle
-from gzip import GzipFile
-import struct
-from io import BufferedReader
-from swift.common.utils import json
-from swift.common.ring.ring import RingData
 from hashlib import md5
+
+from swift.common.utils import json, get_logger, HASH_PATH_SUFFIX, HASH_PATH_PREFIX
+from swift.common.ring.ring import Ring
+from swift.common.swob import Response
 from swift.proxy.controllers.base import Controller
-from swift.common.utils import get_logger
-from swift.common.swob import HTTPOk, Response
+
 
 """
 pipeline = catch_errors proxy-logging cache ringinfo proxy-server
@@ -32,23 +27,36 @@ class GzipToJsonController(Controller):
         Controller.__init__(self, app)
         self.conf = conf
         self.logger = get_logger(conf, log_route='ringinfo')
-        self.ring_files_type = conf.get('ring_files_type')
+        self.swift_dir = self.conf.get('swift_dir', '/etc/swift')
+        self.object_ring = Ring(self.swift_dir, ring_name='object')
+        self.container_ring = Ring(self.swift_dir, ring_name='container')
+        self.account_ring = Ring(self.swift_dir, ring_name='account')
 
-    def _deserialize_v1(self, gz_file):
-        json_len, = struct.unpack('!I', gz_file.read(4))
-        ring_dict = json.loads(gz_file.read(json_len))
-        ring_dict['replica2part2dev_id'] = []
-        partition_count = 1 << (32 - ring_dict['part_shift'])
-        for x in xrange(ring_dict['replica_count']):
-            ring_dict['replica2part2dev_id'].append(
-                list(array.array('H', gz_file.read(2 * partition_count))))
-        return ring_dict
+    def _to_dict(self):
+        return {
+            'swift_hash_path_prefix': HASH_PATH_PREFIX,
+            'swift_hash_path_suffix': HASH_PATH_SUFFIX,
+            'object': {
+                'devs': self.object_ring._devs,
+                'replica2part2dev_id': [item.tolist() for item in self.object_ring._replica2part2dev_id],
+                'part_shift': self.object_ring._part_shift
+            },
+            'container': {
+                'devs': self.container_ring._devs,
+                'replica2part2dev_id': [item.tolist() for item in self.container_ring._replica2part2dev_id],
+                'part_shift': self.container_ring._part_shift
+            },
+            'account': {
+                'devs': self.account_ring._devs,
+                'replica2part2dev_id': [item.tolist() for item in self.account_ring._replica2part2dev_id],
+                'part_shift': self.account_ring._part_shift
+            }
+        }
 
-    def _to_dict(self, ringdata):
-        return {'devs': ringdata.devs,
-                'replica2part2dev_id': ringdata._replica2part2dev_id,
-                'part_shift': ringdata._part_shift
-               }
+    def _reload(self):
+        self.object_ring._reload()
+        self.container_ring._reload()
+        self.account_ring._reload()
 
     def _ringinfo_md5(self, json_file):
         calc_hash = md5()
@@ -61,34 +69,8 @@ class GzipToJsonController(Controller):
         Load ring data from .gz files.
         """
 
-        ring_info = {}
-        for ring_file in self.ring_files_type.keys():
-            gz_filename = self.ring_files_type[ring_file]
-            gz_file = GzipFile(gz_filename, 'rb')
-            # Python 2.6 GzipFile doesn't support BufferedIO
-            if hasattr(gz_file, '_checkReadable'):
-                gz_file = BufferedReader(gz_file)
-
-            # See if the file is in the new format
-            magic = gz_file.read(4)
-            if magic == 'R1NG':
-                version, = struct.unpack('!H', gz_file.read(2))
-                if version == 1:
-                    ring_data = self._deserialize_v1(gz_file)
-                else:
-                    self.logger.error('Unknown ring format version %(val)'.format({'val': version}))
-                    raise Exception('Unknown ring format version %(val)'.format(version))
-            else:
-                # Assume old-style pickled ring
-                gz_file.seek(0)
-                ring_data = pickle.load(gz_file)
-            if not hasattr(ring_data, 'devs'):
-                ring_data = RingData(ring_data['replica2part2dev_id'],
-                                     ring_data['devs'], ring_data['part_shift'])
-            if dict != type(ring_data):
-                ring_data = self._to_dict(ring_data)
-            ring_info[ring_file] = ring_data
-
+        self._reload()
+        ring_info = self._to_dict()
         gz_file_to_ring_info = json.dumps(ring_info, sort_keys=True)
         ring_info_json_md5 = self._ringinfo_md5(gz_file_to_ring_info)
 
